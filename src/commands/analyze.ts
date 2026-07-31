@@ -2,9 +2,10 @@ import { resolve } from 'path';
 import { pathExists, stat, readdir } from 'fs-extra';
 import { parseComponent } from '../analyzer/parser';
 import { resetResolver } from '../analyzer/resolver';
+import { loadConfig, resolveConfig, printConfig } from '../config';
 import { AnalysisResult, SkeletonElement } from '../types';
 
-export async function analyze(targetPath: string): Promise<void> {
+export async function analyze(targetPath: string, verbose: boolean = false): Promise<void> {
   const resolvedPath = resolve(process.cwd(), targetPath);
 
   if (!(await pathExists(resolvedPath))) {
@@ -12,7 +13,16 @@ export async function analyze(targetPath: string): Promise<void> {
     process.exit(1);
   }
 
+  // Load config for verbose output
+  const baseConfig = await loadConfig();
+  const config = resolveConfig(baseConfig, {}, verbose);
+
   console.log(`\n📊 Analyzing components...\n`);
+
+  if (verbose) {
+    printConfig(config);
+    console.log('');
+  }
 
   resetResolver();
 

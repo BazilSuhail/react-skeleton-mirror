@@ -14,33 +14,42 @@ program
   .command('analyze')
   .description('Analyze React components and show skeleton generation suggestions')
   .argument('<path>', 'Path to component file or directory')
-  .action(async (path: string) => {
+  .option('-v, --verbose', 'Show detailed output', false)
+  .action(async (path: string, options: { verbose: boolean }) => {
     const { analyze } = await import('./commands/analyze');
-    await analyze(path);
+    await analyze(path, options.verbose);
   });
 
 program
   .command('generate')
   .description('Generate skeleton component files')
   .argument('<path>', 'Path to component file or directory')
-  .option('-s, --style <style>', 'CSS output style: "css" or "tailwind"', 'css')
-  .option('-o, --output <path>', 'Output directory for skeletons', './src/skeletons')
+  .option('-s, --style <style>', 'CSS output style: "css" or "tailwind"')
+  .option('-o, --output <path>', 'Output directory for skeletons')
   .option('-t, --tests', 'Generate test files for skeletons', false)
-  .option('-w, --watch', 'Watch for changes and regenerate', false)
-  .action(async (path: string, options: { style: string; output: string; tests: boolean; watch: boolean }) => {
+  .option('-v, --verbose', 'Show detailed output', false)
+  .action(async (path: string, options: { style?: string; output?: string; tests: boolean; verbose: boolean }) => {
     const { generate } = await import('./commands/generate');
-    await generate(path, options as import('./types').GenerateOptions);
+    await generate(path, {
+      style: options.style as 'css' | 'tailwind' | undefined,
+      output: options.output,
+      tests: options.tests,
+    }, options.verbose);
   });
 
 program
   .command('watch')
   .description('Watch components and auto-regenerate skeletons on changes')
   .argument('<path>', 'Path to component file or directory to watch')
-  .option('-s, --style <style>', 'CSS output style: "css" or "tailwind"', 'css')
-  .option('-o, --output <path>', 'Output directory for skeletons', './src/skeletons')
-  .action(async (path: string, options: { style: string; output: string }) => {
+  .option('-s, --style <style>', 'CSS output style: "css" or "tailwind"')
+  .option('-o, --output <path>', 'Output directory for skeletons')
+  .option('-v, --verbose', 'Show detailed output', false)
+  .action(async (path: string, options: { style?: string; output?: string; verbose: boolean }) => {
     const { watch } = await import('./commands/watch');
-    await watch(path, options as import('./types').WatchOptions);
+    await watch(path, {
+      style: options.style as 'css' | 'tailwind' | undefined,
+      output: options.output,
+    }, options.verbose);
   });
 
 program

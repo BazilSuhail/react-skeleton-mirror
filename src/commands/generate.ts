@@ -5,11 +5,12 @@ import { resetResolver } from '../analyzer/resolver';
 import { generateSkeletonTSX } from '../generator/tsx';
 import { generateCSS } from '../generator/templates';
 import { GenerateOptions, AnalysisResult } from '../types';
-import { loadConfig } from '../config';
+import { loadConfig, resolveConfig, printConfig } from '../config';
 
 export async function generate(
   targetPath: string,
-  options: GenerateOptions
+  options: GenerateOptions,
+  verbose: boolean = false
 ): Promise<void> {
   const resolvedPath = resolve(process.cwd(), targetPath);
 
@@ -18,20 +19,26 @@ export async function generate(
     process.exit(1);
   }
 
+  // Load and resolve config (defaults → config file → CLI flags)
+  const baseConfig = await loadConfig();
+  const config = resolveConfig(baseConfig, options, verbose);
+
   // Validate style option
   if (options.style && options.style !== 'css' && options.style !== 'tailwind') {
     console.log(`\n❌ Invalid style: "${options.style}". Use "css" or "tailwind".\n`);
     process.exit(1);
   }
 
-  // Load config and merge with CLI options
-  const config = await loadConfig();
-  const style = options.style || config.style;
-  const outputDir = resolve(process.cwd(), options.output || config.output);
+  const outputDir = resolve(process.cwd(), config.output);
 
   console.log(`\n✨ Generating skeletons...\n`);
-  console.log(`  Style: ${style}`);
-  console.log(`  Output: ${options.output}\n`);
+  console.log(`  Style: ${config.style}`);
+  console.log(`  Output: ${config.output}`);
+
+  if (verbose) {
+    printConfig(config);
+  }
+  console.log('');
 
   resetResolver();
 
@@ -42,19 +49,27 @@ export async function generate(
     return;
   }
 
+  if (verbose) {
+    console.log(`  📁 Found ${files.length} component(s)\n`);
+  }
+
   let generated = 0;
   let failed = 0;
 
   for (const file of files) {
     try {
+      if (verbose) {
+        console.log(`  🔍 Parsing ${file.split(/[/\\]/).pop()}...`);
+      }
+
       const result = await parseComponent(file);
-      const success = await writeSkeletonFiles(result, outputDir, style);
+      const success = await writeSkeletonFiles(result, outputDir, config.style);
 
       if (success) {
         generated++;
         const fileName = file.split(/[/\\]/).pop() || '';
         console.log(`  ✅ ${fileName} → ${result.componentName}.skeleton.tsx`);
-        if (style === 'css') {
+        if (config.style === 'css') {
           console.log(`     ${result.componentName}.skeleton.css`);
         }
       }

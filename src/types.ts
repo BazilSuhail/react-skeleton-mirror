@@ -40,14 +40,14 @@ export interface AnalysisResult {
 }
 
 export interface GenerateOptions {
-  style: 'css' | 'tailwind';
-  output: string;
+  style?: 'css' | 'tailwind';
+  output?: string;
   tests: boolean;
 }
 
 export interface WatchOptions {
-  style: 'css' | 'tailwind';
-  output: string;
+  style?: 'css' | 'tailwind';
+  output?: string;
 }
 
 export interface SkeletonConfig {
@@ -63,4 +63,8 @@ export interface SkeletonConfig {
     button: { height: number; borderRadius: number };
     text: { height: number; margin: string };
   };
+}
+
+export interface ResolvedConfig extends SkeletonConfig {
+  verbose: boolean;
 }

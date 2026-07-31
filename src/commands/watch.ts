@@ -1,15 +1,18 @@
 import { resolve } from 'path';
-import { pathExists, stat } from 'fs-extra';
+import { pathExists, stat, mkdirp, writeFile, readdir } from 'fs-extra';
 import chokidar from 'chokidar';
 import { parseComponent } from '../analyzer/parser';
 import { resetResolver } from '../analyzer/resolver';
 import { generateSkeletonTSX } from '../generator/tsx';
 import { generateCSS } from '../generator/templates';
 import { WatchOptions, AnalysisResult } from '../types';
-import { loadConfig } from '../config';
-import { mkdirp, writeFile } from 'fs-extra';
+import { loadConfig, resolveConfig, printConfig } from '../config';
 
-export async function watch(targetPath: string, options: WatchOptions): Promise<void> {
+export async function watch(
+  targetPath: string,
+  options: WatchOptions,
+  verbose: boolean = false
+): Promise<void> {
   const resolvedPath = resolve(process.cwd(), targetPath);
 
   if (!(await pathExists(resolvedPath))) {
@@ -17,14 +20,20 @@ export async function watch(targetPath: string, options: WatchOptions): Promise<
     process.exit(1);
   }
 
-  const config = await loadConfig();
-  const style = options.style || config.style;
-  const outputDir = resolve(process.cwd(), options.output || config.output);
+  // Load and resolve config
+  const baseConfig = await loadConfig();
+  const config = resolveConfig(baseConfig, options, verbose);
+  const outputDir = resolve(process.cwd(), config.output);
 
   console.log(`\n👀 Watching for changes...\n`);
   console.log(`  Source: ${targetPath}`);
-  console.log(`  Style: ${style}`);
-  console.log(`  Output: ${options.output}\n`);
+  console.log(`  Style: ${config.style}`);
+  console.log(`  Output: ${config.output}`);
+
+  if (verbose) {
+    printConfig(config);
+  }
+  console.log('');
 
   // Determine watch pattern
   const isFile = (await stat(resolvedPath)).isFile();
@@ -68,11 +77,14 @@ export async function watch(targetPath: string, options: WatchOptions): Promise<
     console.log(`  📁 ${fileName} changed → Regenerating...`);
 
     try {
+      if (verbose) {
+        console.log(`     Parsing ${filePath}...`);
+      }
       resetResolver();
       const result = await parseComponent(filePath);
-      await writeSkeletonFiles(result, outputDir, style);
+      await writeSkeletonFiles(result, outputDir, config.style);
       console.log(`  ✅ ${componentName}.skeleton.tsx updated`);
-      if (style === 'css') {
+      if (config.style === 'css') {
         console.log(`     ${componentName}.skeleton.css updated`);
       }
     } catch (err) {
@@ -96,14 +108,14 @@ export async function watch(targetPath: string, options: WatchOptions): Promise<
     try {
       resetResolver();
       const result = await parseComponent(filePath);
-      await writeSkeletonFiles(result, outputDir, style);
+      await writeSkeletonFiles(result, outputDir, config.style);
       const componentName = fileName
         .replace(/\.(tsx|jsx)$/i, '')
         .split('.')
         .map((p) => p.charAt(0).toUpperCase() + p.slice(1))
         .join('');
       console.log(`  ✅ ${componentName}.skeleton.tsx created`);
-      if (style === 'css') {
+      if (config.style === 'css') {
         console.log(`     ${componentName}.skeleton.css created`);
       }
     } catch (err) {
@@ -117,11 +129,6 @@ export async function watch(targetPath: string, options: WatchOptions): Promise<
   // Handle file deletions
   watcher.on('unlink', (filePath: string) => {
     const fileName = filePath.split(/[/\\]/).pop() || '';
-    const componentName = fileName
-      .replace(/\.(tsx|jsx)$/i, '')
-      .split('.')
-      .map((p) => p.charAt(0).toUpperCase() + p.slice(1))
-      .join('');
 
     console.log(`  🗑️  ${fileName} removed → Skeleton not deleted (manual cleanup needed)`);
   });
@@ -143,7 +150,7 @@ export async function watch(targetPath: string, options: WatchOptions): Promise<
       try {
         resetResolver();
         const result = await parseComponent(file);
-        await writeSkeletonFiles(result, outputDir, style);
+        await writeSkeletonFiles(result, outputDir, config.style);
         generated++;
       } catch {
         // Skip files that fail initial generation
@@ -161,11 +168,11 @@ export async function watch(targetPath: string, options: WatchOptions): Promise<
   console.log(`  👀 Watching for changes... (Press Ctrl+C to stop)\n`);
 
   // Keep process alive
-  await new Promise<void>((resolve) => {
+  await new Promise<void>((resolvePromise) => {
     process.on('SIGINT', () => {
       console.log('\n\n  👋 Stopping watcher...\n');
       watcher.close();
-      resolve();
+      resolvePromise();
     });
   });
 }
@@ -210,7 +217,6 @@ async function getComponentFiles(targetPath: string): Promise<string[]> {
 }
 
 async function collectFiles(dir: string, files: string[]): Promise<void> {
-  const { readdir } = await import('fs-extra');
   const entries = await readdir(dir, { withFileTypes: true });
 
   for (const entry of entries) {

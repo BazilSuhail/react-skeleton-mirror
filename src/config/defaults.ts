@@ -14,3 +14,9 @@ export const DEFAULT_CONFIG: SkeletonConfig = {
     text: { height: 16, margin: '8px 0' },
   },
 };
+
+export const CONFIG_FILE_NAMES = [
+  'skeletonify.config.json',
+  'skeletonify.config.js',
+  '.skeletonifyrc',
+];
