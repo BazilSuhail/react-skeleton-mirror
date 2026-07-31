@@ -1,0 +1,76 @@
+{
+  "name": "react-skeleton-mirror",
+  "version": "1.0.0",
+  "description": "CLI tool that analyzes your React components and generates skeleton loading components with zero runtime cost",
+  "main": "dist/cli.js",
+  "bin": {
+    "skeletonify": "./dist/cli.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch",
+    "start": "node dist/cli.js",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [
+    "react",
+    "skeleton",
+    "loading",
+    "nextjs",
+    "next.js",
+    "cli",
+    "code-generation",
+    "code-generator",
+    "skeleton-loader",
+    "loading-state",
+    "placeholder",
+    "ui",
+    "ux",
+    "performance",
+    "typescript",
+    "tailwind",
+    "css",
+    "react-components",
+    "component-generator",
+    "developer-tools",
+    "devtools",
+    "skeleton-ui",
+    "react-skeleton",
+    "nextjs-skeleton",
+    "loading-skeleton",
+    "boilerplate",
+    "scaffold",
+    "ast",
+    "babel"
+  ],
+  "author": "bazil",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/BazilSuhail/react-skeleton-mirror.git"
+  },
+  "bugs": {
+    "url": "https://github.com/BazilSuhail/react-skeleton-mirror/issues"
+  },
+  "homepage": "https://github.com/BazilSuhail/react-skeleton-mirror#readme",
+  "dependencies": {
+    "@babel/parser": "^7.26.0",
+    "@babel/traverse": "^7.26.0",
+    "@babel/types": "^7.26.0",
+    "chokidar": "^4.0.0",
+    "commander": "^12.0.0",
+    "fs-extra": "^11.0.0"
+  },
+  "devDependencies": {
+    "@types/babel__traverse": "^7.20.0",
+    "@types/fs-extra": "^11.0.0",
+    "@types/node": "^22.0.0",
+    "typescript": "^5.0.0"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "files": [
+    "dist"
+  ]
+}
