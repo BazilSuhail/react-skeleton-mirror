@@ -12,7 +12,6 @@ skeletonify.config.json
 .env.production.local
 coverage/
 .nyc_output/
-package-lock.json
 .idea/
 .vscode/
 *.swp

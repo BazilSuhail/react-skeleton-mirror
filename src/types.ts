@@ -7,6 +7,7 @@ export interface SkeletonElement {
   width?: string;
   height?: string;
   isCircle?: boolean;
+  isLayout?: boolean;
   children: SkeletonElement[];
 }
 
@@ -17,8 +18,16 @@ export type SkeletonType =
   | 'BUTTON'
   | 'INPUT'
   | 'LINK'
+  | 'ICON'
+  | 'AVATAR'
   | 'CONTAINER'
   | 'WRAPPER';
+
+export interface ImportInfo {
+  componentName: string;
+  sourcePath: string;
+  isDefault: boolean;
+}
 
 export interface AnalysisResult {
   filePath: string;
@@ -27,6 +36,7 @@ export interface AnalysisResult {
   framework: 'react' | 'nextjs-app' | 'nextjs-pages';
   elements: SkeletonElement[];
   subComponents: AnalysisResult[];
+  imports: ImportInfo[];
 }
 
 export interface GenerateOptions {

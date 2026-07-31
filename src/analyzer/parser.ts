@@ -1,18 +1,14 @@
 import { parse } from '@babel/parser';
 import traverse from '@babel/traverse';
 import * as t from '@babel/types';
-import { AnalysisResult, SkeletonElement } from '../types';
-import { resolve, dirname } from 'path';
-import { pathExists } from 'fs-extra';
+import { readFileSync } from 'fs';
+import { AnalysisResult, SkeletonElement, ImportInfo } from '../types';
+import { classifyElement, computeDimensions } from './classifier';
+import { resolveImports } from './resolver';
+import { detectFramework } from './framework';
 
 export async function parseComponent(filePath: string): Promise<AnalysisResult> {
-  const { readFileSync } = await import('fs');
   const code = readFileSync(filePath, 'utf-8');
-
-  const isJsx = filePath.endsWith('.jsx') || filePath.endsWith('.tsx');
-  if (!isJsx) {
-    throw new Error(`Not a JSX/TSX file: ${filePath}`);
-  }
 
   const ast = parse(code, {
     sourceType: 'module',
@@ -20,7 +16,7 @@ export async function parseComponent(filePath: string): Promise<AnalysisResult> 
   });
 
   const elements: SkeletonElement[] = [];
-  const subComponents: AnalysisResult[] = [];
+  const imports: ImportInfo[] = [];
   let componentName = '';
   let isClientComponent = false;
 
@@ -35,29 +31,103 @@ export async function parseComponent(filePath: string): Promise<AnalysisResult> 
   }
 
   traverse(ast, {
-    // Capture function component names
+    // Capture function component names (named export)
+    ExportNamedDeclaration(path) {
+      const decl = path.node.declaration;
+      if (decl?.type === 'FunctionDeclaration' && decl.id) {
+        componentName = decl.id.name;
+      }
+    },
+    // Capture default export component names
+    ExportDefaultDeclaration(path) {
+      const decl = path.node.declaration;
+      if (decl?.type === 'FunctionDeclaration' && decl.id) {
+        componentName = decl.id.name;
+      } else if (decl?.type === 'Identifier') {
+        componentName = decl.name;
+      }
+    },
+    // Capture function declarations
     FunctionDeclaration(path) {
-      if (path.node.id) {
+      if (path.node.id && !componentName) {
         componentName = path.node.id.name;
       }
     },
-    ArrowFunctionExpression(path) {
-      const parent = path.parent;
+    // Capture const Component = () => {} patterns
+    VariableDeclarator(path) {
       if (
-        parent.type === 'VariableDeclarator' &&
-        parent.id.type === 'Identifier'
+        path.node.id.type === 'Identifier' &&
+        (path.node.init?.type === 'ArrowFunctionExpression' ||
+          path.node.init?.type === 'FunctionExpression')
       ) {
-        componentName = parent.id.name;
+        if (!componentName) {
+          componentName = path.node.id.name;
+        }
       }
     },
-    // Capture JSX elements
-    JSXElement(path) {
-      const element = extractJSXElement(path.node);
-      if (element) {
-        elements.push(element);
+    // Track imports
+    ImportDeclaration(path) {
+      const source = path.node.source.value;
+      if (typeof source !== 'string') return;
+
+      for (const specifier of path.node.specifiers) {
+        if (specifier.type === 'ImportDefaultSpecifier') {
+          imports.push({
+            componentName: specifier.local.name,
+            sourcePath: source,
+            isDefault: true,
+          });
+        } else if (specifier.type === 'ImportSpecifier') {
+          const imported = specifier.imported;
+          const name = imported.type === 'Identifier' ? imported.name : imported.value;
+          imports.push({
+            componentName: name,
+            sourcePath: source,
+            isDefault: false,
+          });
+        }
+      }
+    },
+    // Capture only the ROOT JSX element returned by the component
+    ReturnStatement(path) {
+      const argument = path.node.argument;
+      if (!argument) return;
+
+      let rootElement: t.JSXElement | null = null;
+
+      if (argument.type === 'JSXElement') {
+        rootElement = argument;
+      } else if (argument.type === 'JSXFragment') {
+        // Return first element from fragment
+        for (const child of argument.children) {
+          if (child.type === 'JSXElement') {
+            rootElement = child;
+            break;
+          }
+        }
+      } else if (argument.type === 'ConditionalExpression') {
+        // {condition ? <A /> : <B />}
+        if (argument.consequent.type === 'JSXElement') {
+          rootElement = argument.consequent;
+        }
+      } else if (argument.type === 'LogicalExpression') {
+        // {condition && <Element />}
+        if (argument.right.type === 'JSXElement') {
+          rootElement = argument.right;
+        }
+      }
+
+      if (rootElement) {
+        const element = extractJSXElement(rootElement);
+        if (element) {
+          elements.push(element);
+        }
       }
     },
   });
+
+  // Resolve sub-components
+  const subComponents = await resolveImports(imports, filePath);
 
   // Determine framework
   const framework = detectFramework(filePath);
@@ -69,6 +139,7 @@ export async function parseComponent(filePath: string): Promise<AnalysisResult> 
     framework,
     elements,
     subComponents,
+    imports,
   };
 }
 
@@ -79,7 +150,6 @@ function extractJSXElement(node: t.JSXElement): SkeletonElement | null {
   if (openingElement.name.type === 'JSXIdentifier') {
     tagName = openingElement.name.name;
   } else if (openingElement.name.type === 'JSXMemberExpression') {
-    // e.g., <Card.Header>
     const object = openingElement.name.object;
     const property = openingElement.name.property;
     if (object.type === 'JSXIdentifier' && property.type === 'JSXIdentifier') {
@@ -87,30 +157,61 @@ function extractJSXElement(node: t.JSXElement): SkeletonElement | null {
     } else {
       return null;
     }
+  } else if (openingElement.name.type === 'JSXNamespacedName') {
+    const ns = openingElement.name.namespace;
+    const name = openingElement.name.name;
+    if (ns.type === 'JSXIdentifier' && name.type === 'JSXIdentifier') {
+      tagName = `${ns.name}:${name.name}`;
+    } else {
+      return null;
+    }
   } else {
     return null;
   }
 
-  // Extract className
+  // Extract attributes
   let className: string | undefined;
   let style: Record<string, string> | undefined;
+  let src: string | undefined;
+  let alt: string | undefined;
+  let placeholder: string | undefined;
+  let type: string | undefined;
 
   for (const attr of openingElement.attributes) {
     if (attr.type !== 'JSXAttribute') continue;
 
-    if (attr.name.name === 'className' || attr.name.name === 'class') {
+    const name = attr.name.name;
+    if (typeof name !== 'string') continue;
+
+    if (name === 'className' || name === 'class') {
       className = extractStringFromExpression(attr.value);
     }
 
-    if (attr.name.name === 'style' && attr.value?.type === 'JSXExpressionContainer') {
+    if (name === 'style' && attr.value?.type === 'JSXExpressionContainer') {
       const expr = attr.value.expression;
       if (expr.type !== 'JSXEmptyExpression') {
         style = extractStyleObject(expr);
       }
     }
+
+    if (name === 'src') {
+      src = extractStringFromExpression(attr.value);
+    }
+
+    if (name === 'alt') {
+      alt = extractStringFromExpression(attr.value);
+    }
+
+    if (name === 'placeholder') {
+      placeholder = extractStringFromExpression(attr.value);
+    }
+
+    if (name === 'type') {
+      type = extractStringFromExpression(attr.value);
+    }
   }
 
-  // Extract text content
+  // Extract children
   let text: string | undefined;
   const children: SkeletonElement[] = [];
 
@@ -125,44 +226,75 @@ function extractJSXElement(node: t.JSXElement): SkeletonElement | null {
       if (childElement) {
         children.push(childElement);
       }
+    } else if (child.type === 'JSXExpressionContainer') {
+      // Handle {items.map(...)} and {condition && <Element />}
+      const expr = child.expression;
+      if (expr.type === 'CallExpression') {
+        // Likely a map — try to find the JSXElement inside
+        const jsxInMap = findJSXInExpression(expr);
+        if (jsxInMap) {
+          children.push(jsxInMap);
+        }
+      } else if (expr.type === 'LogicalExpression') {
+        // {condition && <Element />}
+        if (expr.right.type === 'JSXElement') {
+          const childElement = extractJSXElement(expr.right);
+          if (childElement) {
+            children.push(childElement);
+          }
+        }
+      } else if (expr.type === 'ConditionalExpression') {
+        // {condition ? <A /> : <B />}
+        if (expr.consequent.type === 'JSXElement') {
+          const childElement = extractJSXElement(expr.consequent);
+          if (childElement) {
+            children.push(childElement);
+          }
+        }
+        if (expr.alternate.type === 'JSXElement') {
+          const childElement = extractJSXElement(expr.alternate);
+          if (childElement) {
+            children.push(childElement);
+          }
+        }
+      }
     }
   }
 
-  const type = classifyElement(tagName, className, text);
+  // Classify the element with sizing
+  const type_ = classifyElement(tagName, className, text, src, alt);
+  const dimensions = computeDimensions(type_, className, style, src);
 
   return {
-    type,
+    type: type_,
     tagName,
     className,
     style,
     text,
+    width: dimensions.width,
+    height: dimensions.height,
+    isCircle: dimensions.isCircle,
+    isLayout: dimensions.isLayout,
     children,
   };
 }
 
-function classifyElement(
-  tagName: string,
-  className?: string,
-  text?: string
-): SkeletonElement['type'] {
-  const tag = tagName.toLowerCase();
-
-  if (tag === 'img') return 'IMAGE';
-  if (/^h[1-6]$/.test(tag)) return 'HEADING';
-  if (tag === 'p') return 'TEXT';
-  if (tag === 'span') return 'TEXT';
-  if (tag === 'button') return 'BUTTON';
-  if (tag === 'input' || tag === 'textarea') return 'INPUT';
-  if (tag === 'a') return 'LINK';
-
-  // Check className for layout indicators
-  if (className) {
-    const hasLayout =
-      /\b(flex|grid|inline-flex|inline-grid)\b/.test(className);
-    if (hasLayout) return 'CONTAINER';
+function findJSXInExpression(expr: t.Expression): SkeletonElement | null {
+  if (expr.type === 'JSXElement') {
+    return extractJSXElement(expr);
   }
-
-  return 'WRAPPER';
+  if (expr.type === 'ArrowFunctionExpression' && expr.body.type === 'JSXElement') {
+    return extractJSXElement(expr.body);
+  }
+  if (expr.type === 'ArrowFunctionExpression' && expr.body.type === 'JSXFragment') {
+    // Return first element from fragment
+    for (const child of expr.body.children) {
+      if (child.type === 'JSXElement') {
+        return extractJSXElement(child);
+      }
+    }
+  }
+  return null;
 }
 
 function extractStringFromExpression(
@@ -180,8 +312,11 @@ function extractStringFromExpression(
       return expr.value;
     }
     if (expr.type === 'TemplateLiteral') {
-      // Simple template literal - just return raw for now
       return expr.quasis.map((q) => q.value.cooked || q.value.raw).join('');
+    }
+    if (expr.type === 'Identifier') {
+      // Variable reference — return the variable name for context
+      return expr.name;
     }
   }
 
@@ -197,11 +332,15 @@ function extractStyleObject(
 
   for (const prop of expression.properties) {
     if (prop.type !== 'ObjectProperty') continue;
-    if (prop.key.type !== 'Identifier') continue;
+    if (prop.key.type !== 'Identifier' && prop.key.type !== 'StringLiteral') continue;
 
+    const key = prop.key.type === 'Identifier' ? prop.key.name : prop.key.value;
     const value = prop.value;
+
     if (value.type === 'StringLiteral') {
-      style[prop.key.name] = value.value;
+      style[key] = value.value;
+    } else if (value.type === 'NumericLiteral') {
+      style[key] = `${value.value}px`;
     }
   }
 
@@ -215,16 +354,4 @@ function extractComponentNameFromPath(filePath: string): string {
     .split('.')
     .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
     .join('');
-}
-
-function detectFramework(filePath: string): AnalysisResult['framework'] {
-  const normalizedPath = filePath.replace(/\\/g, '/');
-
-  if (normalizedPath.includes('/app/') && normalizedPath.includes('/page.')) {
-    return 'nextjs-app';
-  }
-  if (normalizedPath.includes('/pages/')) {
-    return 'nextjs-pages';
-  }
-  return 'react';
 }
