@@ -17,7 +17,14 @@ export async function analyze(targetPath: string): Promise<void> {
   resetResolver();
 
   const files = await getComponentFiles(resolvedPath);
+
+  if (files.length === 0) {
+    console.log('  No components found.\n');
+    return;
+  }
+
   const results: AnalysisResult[] = [];
+  const errors: string[] = [];
 
   for (const file of files) {
     try {
@@ -26,16 +33,26 @@ export async function analyze(targetPath: string): Promise<void> {
       printComponentSummary(result);
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
-      console.log(`  ⚠️  ${file.split(/[/\\]/).pop()} — parse error: ${message}`);
+      const fileName = file.split(/[/\\]/).pop() || '';
+      errors.push(`${fileName}: ${message}`);
+      console.log(`  ⚠️  ${fileName} — parse error: ${message}`);
     }
   }
 
   if (results.length === 0) {
-    console.log('  No components found.\n');
+    if (errors.length > 0) {
+      console.log(`\n  ❌ All ${errors.length} file(s) failed to parse.\n`);
+    } else {
+      console.log('  No components found.\n');
+    }
     return;
   }
 
   printSuggestions(results);
+
+  if (errors.length > 0) {
+    console.log(`\n  ⚠️  ${errors.length} file(s) had parse errors.\n`);
+  }
 }
 
 function printComponentSummary(result: AnalysisResult): void {
@@ -153,7 +170,11 @@ async function getComponentFiles(targetPath: string): Promise<string[]> {
   const s = await stat(targetPath);
 
   if (s.isFile()) {
-    return [targetPath];
+    if (isValidComponentFile(targetPath)) {
+      return [targetPath];
+    }
+    console.log(`  ⚠️  ${targetPath.split(/[/\\]/).pop()} is not a .tsx or .jsx file\n`);
+    return [];
   }
 
   // Directory — recursively find all .tsx, .jsx files
@@ -170,6 +191,11 @@ async function getComponentFiles(targetPath: string): Promise<string[]> {
     if (name.includes('.skeleton.')) return false;
     return true;
   });
+}
+
+function isValidComponentFile(filePath: string): boolean {
+  const name = filePath.split(/[/\\]/).pop()?.toLowerCase() || '';
+  return name.endsWith('.tsx') || name.endsWith('.jsx');
 }
 
 async function collectFiles(dir: string, files: string[]): Promise<void> {

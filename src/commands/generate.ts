@@ -1,4 +1,4 @@
-import { resolve, basename } from 'path';
+import { resolve } from 'path';
 import { pathExists, stat, mkdirp, writeFile, readdir } from 'fs-extra';
 import { parseComponent } from '../analyzer/parser';
 import { resetResolver } from '../analyzer/resolver';
@@ -18,6 +18,12 @@ export async function generate(
     process.exit(1);
   }
 
+  // Validate style option
+  if (options.style && options.style !== 'css' && options.style !== 'tailwind') {
+    console.log(`\n❌ Invalid style: "${options.style}". Use "css" or "tailwind".\n`);
+    process.exit(1);
+  }
+
   // Load config and merge with CLI options
   const config = await loadConfig();
   const style = options.style || config.style;
@@ -30,7 +36,14 @@ export async function generate(
   resetResolver();
 
   const files = await getComponentFiles(resolvedPath);
+
+  if (files.length === 0) {
+    console.log('  No components found.\n');
+    return;
+  }
+
   let generated = 0;
+  let failed = 0;
 
   for (const file of files) {
     try {
@@ -46,18 +59,23 @@ export async function generate(
         }
       }
     } catch (err) {
+      failed++;
       const message = err instanceof Error ? err.message : String(err);
       const fileName = file.split(/[/\\]/).pop() || '';
       console.log(`  ⚠️  ${fileName} — error: ${message}`);
     }
   }
 
-  if (generated === 0) {
+  if (generated === 0 && failed === 0) {
     console.log('  No skeletons generated.\n');
     return;
   }
 
-  console.log(`\n  📊 Generated ${generated} skeleton${generated !== 1 ? 's' : ''}\n`);
+  console.log(`\n  📊 Generated ${generated} skeleton${generated !== 1 ? 's' : ''}`);
+  if (failed > 0) {
+    console.log(`  ⚠️  ${failed} file(s) failed to generate`);
+  }
+  console.log('');
 }
 
 async function writeSkeletonFiles(
@@ -87,7 +105,11 @@ async function getComponentFiles(targetPath: string): Promise<string[]> {
   const s = await stat(targetPath);
 
   if (s.isFile()) {
-    return [targetPath];
+    if (isValidComponentFile(targetPath)) {
+      return [targetPath];
+    }
+    console.log(`  ⚠️  ${targetPath.split(/[/\\]/).pop()} is not a .tsx or .jsx file\n`);
+    return [];
   }
 
   // Directory — recursively find all .tsx, .jsx files
@@ -104,6 +126,11 @@ async function getComponentFiles(targetPath: string): Promise<string[]> {
     if (name.includes('.skeleton.')) return false;
     return true;
   });
+}
+
+function isValidComponentFile(filePath: string): boolean {
+  const name = filePath.split(/[/\\]/).pop()?.toLowerCase() || '';
+  return name.endsWith('.tsx') || name.endsWith('.jsx');
 }
 
 async function collectFiles(dir: string, files: string[]): Promise<void> {
