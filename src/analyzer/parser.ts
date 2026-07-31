@@ -21,13 +21,25 @@ export async function parseComponent(filePath: string): Promise<AnalysisResult> 
   let isClientComponent = false;
 
   // Check for 'use client' directive
-  const firstStatement = ast.program.body[0];
-  if (
-    firstStatement?.type === 'ExpressionStatement' &&
-    firstStatement.expression.type === 'StringLiteral' &&
-    firstStatement.expression.value === 'use client'
-  ) {
-    isClientComponent = true;
+  // Babel stores directives in the program's directives array
+  if (ast.program.directives) {
+    for (const directive of ast.program.directives) {
+      if (directive.value.type === 'DirectiveLiteral' && directive.value.value === 'use client') {
+        isClientComponent = true;
+        break;
+      }
+    }
+  }
+  // Also check first statement as ExpressionStatement (fallback)
+  if (!isClientComponent) {
+    const firstStatement = ast.program.body[0];
+    if (
+      firstStatement?.type === 'ExpressionStatement' &&
+      firstStatement.expression.type === 'StringLiteral' &&
+      firstStatement.expression.value === 'use client'
+    ) {
+      isClientComponent = true;
+    }
   }
 
   traverse(ast, {
