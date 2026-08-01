@@ -10,6 +10,21 @@
 
 No more wrapping components in `<Skeletonify>` or shipping extra bundle size. Just generated code you own.
 
+---
+
+> [!IMPORTANT]
+> **Documentation**
+>
+> - [Getting Started](docs/GETTING-STARTED.md) — Quick setup and first use
+> - [Commands Reference](docs/COMMANDS.md) — All CLI commands with examples
+> - [Configuration Guide](docs/CONFIGURATION.md) — Config file options and priority
+> - [How It Works](docs/HOW-IT-WORKS.md) — AST parsing, classification, generation pipeline
+> - [Examples](docs/EXAMPLES.md) — Real-world component examples
+> - [API Reference](docs/API-REFERENCE.md) — TypeScript interfaces and functions
+> - [AGENTS.md](docs/AGENTS.md) — Full agent reference for AI assistants
+
+---
+
 ## Why?
 
 | Runtime Package | react-skeleton-mirror |
@@ -19,6 +34,8 @@ No more wrapping components in `<Skeletonify>` or shipping extra bundle size. Ju
 | Limited customization | Full control |
 | Hard to debug | Just React components |
 | Wrapper components needed | Import and use directly |
+
+---
 
 ## Install
 
@@ -31,6 +48,8 @@ Or use directly with npx (no install needed):
 ```bash
 npx react-skeleton-mirror --help
 ```
+
+---
 
 ## Quick Start
 
@@ -83,7 +102,12 @@ function Profile({ user, loading }) {
 }
 ```
 
+---
+
 ## Commands
+
+> [!IMPORTANT]
+> **Full command documentation**: [Commands Reference](docs/COMMANDS.md)
 
 ### `analyze`
 
@@ -93,24 +117,9 @@ Analyze React components and show skeleton generation suggestions.
 npx skeletonify analyze <path> [options]
 ```
 
-**Options:**
-
 | Flag | Description | Default |
 |------|-------------|---------|
 | `-v, --verbose` | Show detailed output | `false` |
-
-**Examples:**
-
-```bash
-# Analyze a single file
-npx skeletonify analyze ./src/components/UserCard.tsx
-
-# Analyze entire directory
-npx skeletonify analyze ./src/components
-
-# Verbose mode
-npx skeletonify analyze ./src/components --verbose
-```
 
 ### `generate`
 
@@ -120,30 +129,12 @@ Generate skeleton component files.
 npx skeletonify generate <path> [options]
 ```
 
-**Options:**
-
 | Flag | Description | Default |
 |------|-------------|---------|
 | `-s, --style <style>` | CSS output: `css` or `tailwind` | from config |
 | `-o, --output <path>` | Output directory | from config |
 | `-t, --tests` | Generate test files | `false` |
 | `-v, --verbose` | Show detailed output | `false` |
-
-**Examples:**
-
-```bash
-# CSS mode (default)
-npx skeletonify generate ./src/components
-
-# Tailwind mode
-npx skeletonify generate ./src/components --style tailwind
-
-# Custom output directory
-npx skeletonify generate ./src/components --output ./src/skeletons
-
-# Verbose mode
-npx skeletonify generate ./src/components --verbose
-```
 
 ### `watch`
 
@@ -153,19 +144,11 @@ Auto-regenerate skeletons when source files change.
 npx skeletonify watch <path> [options]
 ```
 
-**Options:**
-
 | Flag | Description | Default |
 |------|-------------|---------|
 | `-s, --style <style>` | CSS output: `css` or `tailwind` | from config |
 | `-o, --output <path>` | Output directory | from config |
 | `-v, --verbose` | Show detailed output | `false` |
-
-**Example:**
-
-```bash
-npx skeletonify watch ./src/components --style tailwind --verbose
-```
 
 ### `init`
 
@@ -175,7 +158,12 @@ Create a `skeletonify.config.json` configuration file.
 npx skeletonify init
 ```
 
+---
+
 ## Configuration
+
+> [!IMPORTANT]
+> **Full configuration documentation**: [Configuration Guide](docs/CONFIGURATION.md)
 
 Create a `skeletonify.config.json` in your project root:
 
@@ -196,19 +184,6 @@ Create a `skeletonify.config.json` in your project root:
 }
 ```
 
-### Config Options
-
-| Option | Type | Default | Description |
-|--------|------|---------|-------------|
-| `style` | `"css" \| "tailwind"` | `"css"` | Output style for skeleton CSS |
-| `output` | `string` | `"./src/skeletons"` | Output directory for skeletons |
-| `animation` | `"pulse" \| "shimmer" \| "none"` | `"pulse"` | Animation style |
-| `colors.primary` | `string` | `"#e5e7eb"` | Primary skeleton color |
-| `colors.secondary` | `string` | `"#d1d5db"` | Secondary skeleton color |
-| `patterns.avatar` | `object` | `{ width: 48, height: 48, circle: true }` | Avatar dimensions |
-| `patterns.button` | `object` | `{ height: 40, borderRadius: 6 }` | Button dimensions |
-| `patterns.text` | `object` | `{ height: 16, margin: "8px 0" }` | Text bar dimensions |
-
 ### Priority Chain
 
 Config values are merged in this order (highest priority wins):
@@ -223,7 +198,12 @@ npx skeletonify generate ./src           # Uses tailwind from config
 npx skeletonify generate ./src --style css  # CLI overrides to css
 ```
 
+---
+
 ## How It Works
+
+> [!IMPORTANT]
+> **Full pipeline documentation**: [How It Works](docs/HOW-IT-WORKS.md)
 
 1. **Parses** your React component using Babel AST
 2. **Classifies** each JSX element (image, text, button, input, container)
@@ -285,18 +265,21 @@ return <><div /><div /></>;
 <div {...props} />
 ```
 
+---
+
 ## Supported Frameworks
 
 - **React** — standard component detection
 - **Next.js App Router** — detects `'use client'`, `app/` directory patterns
 - **Next.js Pages Router** — detects `pages/` directory patterns
 
+---
+
 ## TypeScript Support
 
 Fully typed. Generated components include proper TypeScript types:
 
 ```tsx
-// Generated with TypeScript
 interface UserCardSkeletonProps {
   className?: string;
   style?: React.CSSProperties;
@@ -306,6 +289,8 @@ export function UserCardSkeleton({ className, style }: UserCardSkeletonProps) {
   return <div className={`skeleton ${className}`} style={style}>...</div>;
 }
 ```
+
+---
 
 ## Generated Files
 
@@ -327,6 +312,8 @@ Generates one file per component:
 src/skeletons/
   └── UserCard.skeleton.tsx    # Skeleton with inline Tailwind classes
 ```
+
+---
 
 ## Animation Options
 
@@ -356,6 +343,8 @@ Sliding gradient effect:
 
 No animation (static placeholders).
 
+---
+
 ## Error Handling
 
 The tool gracefully handles:
@@ -370,6 +359,39 @@ The tool gracefully handles:
 ⚠️  Invalid.tsx — parse error: Unexpected token, expected ","
 ```
 
+---
+
+## Examples
+
+> [!IMPORTANT]
+> **Full examples**: [Examples](docs/EXAMPLES.md)
+
+```tsx
+// UserCard.tsx
+export default function UserCard() {
+  return (
+    <div className="flex gap-4 p-4">
+      <img src="/avatar.jpg" className="w-12 h-12 rounded-full" />
+      <div>
+        <h2 className="text-lg font-bold">Name</h2>
+        <p className="text-gray-500">Description</p>
+      </div>
+      <button className="bg-blue-500">Follow</button>
+    </div>
+  );
+}
+
+// Generated skeleton
+import { UserCardSkeleton } from './skeletons/UserCard.skeleton';
+
+function Profile({ loading }) {
+  if (loading) return <UserCardSkeleton />;
+  return <UserCard />;
+}
+```
+
+---
+
 ## Development
 
 ```bash
@@ -383,6 +405,9 @@ npm install
 # Build
 npm run build
 
+# Watch mode
+npm run dev
+
 # Link locally for testing
 npm link
 
@@ -392,6 +417,8 @@ npx skeletonify init
 npx skeletonify analyze ./test-components
 npx skeletonify generate ./test-components --verbose
 ```
+
+---
 
 ## License
 
