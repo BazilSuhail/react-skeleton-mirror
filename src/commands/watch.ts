@@ -82,7 +82,7 @@ export async function watch(
       }
       resetResolver();
       const result = await parseComponent(filePath);
-      await writeSkeletonFiles(result, outputDir, config.style);
+      await writeSkeletonFiles(result, outputDir, config.style, config.animation);
       console.log(`  ✅ ${componentName}.skeleton.tsx updated`);
       if (config.style === 'css') {
         console.log(`     ${componentName}.skeleton.css updated`);
@@ -108,7 +108,7 @@ export async function watch(
     try {
       resetResolver();
       const result = await parseComponent(filePath);
-      await writeSkeletonFiles(result, outputDir, config.style);
+      await writeSkeletonFiles(result, outputDir, config.style, config.animation);
       const componentName = fileName
         .replace(/\.(tsx|jsx)$/i, '')
         .split('.')
@@ -150,7 +150,7 @@ export async function watch(
       try {
         resetResolver();
         const result = await parseComponent(file);
-        await writeSkeletonFiles(result, outputDir, config.style);
+        await writeSkeletonFiles(result, outputDir, config.style, config.animation);
         generated++;
       } catch {
         // Skip files that fail initial generation
@@ -180,7 +180,8 @@ export async function watch(
 async function writeSkeletonFiles(
   result: AnalysisResult,
   outputDir: string,
-  style: 'css' | 'tailwind'
+  style: 'css' | 'tailwind',
+  animation: 'pulse' | 'shimmer' | 'none' = 'pulse'
 ): Promise<void> {
   await mkdirp(outputDir);
 
@@ -189,7 +190,7 @@ async function writeSkeletonFiles(
   await writeFile(tsxPath, tsxContent, 'utf-8');
 
   if (style === 'css') {
-    const cssContent = generateCSS();
+    const cssContent = generateCSS(animation);
     const cssPath = resolve(outputDir, `${result.componentName}.skeleton.css`);
     await writeFile(cssPath, cssContent, 'utf-8');
   }

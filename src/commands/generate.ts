@@ -63,7 +63,7 @@ export async function generate(
       }
 
       const result = await parseComponent(file);
-      const success = await writeSkeletonFiles(result, outputDir, config.style);
+      const success = await writeSkeletonFiles(result, outputDir, config.style, config.animation);
 
       if (success) {
         generated++;
@@ -96,7 +96,8 @@ export async function generate(
 async function writeSkeletonFiles(
   result: AnalysisResult,
   outputDir: string,
-  style: 'css' | 'tailwind'
+  style: 'css' | 'tailwind',
+  animation: 'pulse' | 'shimmer' | 'none' = 'pulse'
 ): Promise<boolean> {
   // Create output directory if it doesn't exist
   await mkdirp(outputDir);
@@ -108,7 +109,7 @@ async function writeSkeletonFiles(
 
   // Generate CSS file (only in CSS mode)
   if (style === 'css') {
-    const cssContent = generateCSS();
+    const cssContent = generateCSS(animation);
     const cssPath = resolve(outputDir, `${result.componentName}.skeleton.css`);
     await writeFile(cssPath, cssContent, 'utf-8');
   }
