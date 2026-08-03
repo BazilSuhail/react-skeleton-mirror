@@ -180,7 +180,7 @@ function computeImageDimensions(
 
 function computeHeadingDimensions(
   cls: string,
-  style?: Record<string, string>
+  _style?: Record<string, string>
 ): Dimensions {
   // Headings are shorter than full width
   if (/\b(w-full)\b/.test(cls)) {
@@ -198,7 +198,7 @@ function computeHeadingDimensions(
 
 function computeTextDimensions(
   cls: string,
-  style?: Record<string, string>
+  _style?: Record<string, string>
 ): Dimensions {
   // Full width text
   if (/\b(w-full)\b/.test(cls)) {
@@ -216,7 +216,7 @@ function computeTextDimensions(
 
 function computeButtonDimensions(
   cls: string,
-  style?: Record<string, string>
+  _style?: Record<string, string>
 ): Dimensions {
   // Check for size classes
   if (/\b(px-2|py-1|text-xs)\b/.test(cls)) {
@@ -240,7 +240,7 @@ function computeButtonDimensions(
 
 function computeInputDimensions(
   cls: string,
-  style?: Record<string, string>
+  _style?: Record<string, string>
 ): Dimensions {
   // Full width input (most common)
   if (/\b(w-full)\b/.test(cls) || !/\bw-\d+\b/.test(cls)) {
@@ -256,8 +256,8 @@ function computeInputDimensions(
 }
 
 function computeLinkDimensions(
-  cls: string,
-  style?: Record<string, string>
+  _cls: string,
+  _style?: Record<string, string>
 ): Dimensions {
   // Links are short
   return { width: '30%', height: undefined };
@@ -265,7 +265,7 @@ function computeLinkDimensions(
 
 function computeIconDimensions(
   cls: string,
-  style?: Record<string, string>
+  _style?: Record<string, string>
 ): Dimensions {
   // Check for size classes
   if (/\b(w-4|h-4|text-xs)\b/.test(cls)) {

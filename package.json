@@ -1,6 +1,6 @@
 {
   "name": "react-skeleton-mirror",
-  "version": "1.6.0",
+  "version": "1.7.0",
   "description": "CLI tool that analyzes your React components and generates skeleton loading components with zero runtime cost",
   "main": "dist/cli.js",
   "bin": {
@@ -72,7 +72,6 @@
   },
   "files": [
     "dist",
-    "docs",
-    "AGENTS.md"
+    "docs"
   ]
 }

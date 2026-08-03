@@ -3,6 +3,12 @@
 import { Command } from 'commander';
 import { version } from '../package.json';
 
+process.on('unhandledRejection', (reason) => {
+  const message = reason instanceof Error ? reason.message : String(reason);
+  console.error(`\n❌ Unexpected error: ${message}\n`);
+  process.exit(1);
+});
+
 const program = new Command();
 
 program
@@ -60,4 +66,14 @@ program
     await init();
   });
 
-program.parse();
+async function main() {
+  try {
+    await program.parseAsync();
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    console.error(`\n❌ ${message}\n`);
+    process.exit(1);
+  }
+}
+
+main();

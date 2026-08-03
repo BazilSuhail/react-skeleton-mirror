@@ -1,14 +1,19 @@
 import { parse } from '@babel/parser';
 import traverse from '@babel/traverse';
 import * as t from '@babel/types';
-import { readFileSync } from 'fs';
+import { readFile } from 'fs-extra';
 import { AnalysisResult, SkeletonElement, ImportInfo } from '../types';
 import { classifyElement, computeDimensions } from './classifier';
 import { resolveImports } from './resolver';
 import { detectFramework } from './framework';
 
-export async function parseComponent(filePath: string): Promise<AnalysisResult> {
-  const code = readFileSync(filePath, 'utf-8');
+const MAX_JSX_DEPTH = 20;
+
+export async function parseComponent(
+  filePath: string,
+  analyzedFiles?: Set<string>
+): Promise<AnalysisResult> {
+  const code = await readFile(filePath, 'utf-8');
 
   let ast: t.File;
   try {
@@ -26,7 +31,6 @@ export async function parseComponent(filePath: string): Promise<AnalysisResult> 
   let componentName = '';
   let isClientComponent = false;
 
-  // Check for 'use client' directive
   if (ast.program.directives) {
     for (const directive of ast.program.directives) {
       if (directive.value.type === 'DirectiveLiteral' && directive.value.value === 'use client') {
@@ -47,14 +51,12 @@ export async function parseComponent(filePath: string): Promise<AnalysisResult> 
   }
 
   traverse(ast, {
-    // Capture function component names (named export)
     ExportNamedDeclaration(path) {
       const decl = path.node.declaration;
       if (decl?.type === 'FunctionDeclaration' && decl.id) {
         componentName = decl.id.name;
       }
     },
-    // Capture default export component names
     ExportDefaultDeclaration(path) {
       const decl = path.node.declaration;
       if (decl?.type === 'FunctionDeclaration' && decl.id) {
@@ -63,13 +65,11 @@ export async function parseComponent(filePath: string): Promise<AnalysisResult> 
         componentName = decl.name;
       }
     },
-    // Capture function declarations
     FunctionDeclaration(path) {
       if (path.node.id && !componentName) {
         componentName = path.node.id.name;
       }
     },
-    // Capture const Component = () => {} patterns
     VariableDeclarator(path) {
       if (
         path.node.id.type === 'Identifier' &&
@@ -81,7 +81,6 @@ export async function parseComponent(filePath: string): Promise<AnalysisResult> 
         }
       }
     },
-    // Track imports
     ImportDeclaration(path) {
       const source = path.node.source.value;
       if (typeof source !== 'string') return;
@@ -104,7 +103,6 @@ export async function parseComponent(filePath: string): Promise<AnalysisResult> 
         }
       }
     },
-    // Capture only the ROOT JSX element returned by the component
     ReturnStatement(path) {
       const argument = path.node.argument;
       if (!argument) return;
@@ -114,7 +112,6 @@ export async function parseComponent(filePath: string): Promise<AnalysisResult> 
       if (argument.type === 'JSXElement') {
         rootElement = argument;
       } else if (argument.type === 'JSXFragment') {
-        // Handle fragments — collect all child elements
         const fragmentChildren: SkeletonElement[] = [];
         for (const child of argument.children) {
           if (child.type === 'JSXElement') {
@@ -158,10 +155,7 @@ export async function parseComponent(filePath: string): Promise<AnalysisResult> 
     },
   });
 
-  // Resolve sub-components
-  const subComponents = await resolveImports(imports, filePath);
-
-  // Determine framework
+  const subComponents = await resolveImports(imports, filePath, analyzedFiles);
   const framework = detectFramework(filePath);
 
   return {
@@ -175,7 +169,9 @@ export async function parseComponent(filePath: string): Promise<AnalysisResult> 
   };
 }
 
-function extractJSXElement(node: t.JSXElement): SkeletonElement | null {
+function extractJSXElement(node: t.JSXElement, depth: number = 0): SkeletonElement | null {
+  if (depth > MAX_JSX_DEPTH) return null;
+
   const openingElement = node.openingElement;
   let tagName: string;
 
@@ -201,16 +197,13 @@ function extractJSXElement(node: t.JSXElement): SkeletonElement | null {
     return null;
   }
 
-  // Extract attributes
   let className: string | undefined;
   let style: Record<string, string> | undefined;
   let src: string | undefined;
   let alt: string | undefined;
-  let hasSpreadProps = false;
 
   for (const attr of openingElement.attributes) {
     if (attr.type === 'JSXSpreadAttribute') {
-      hasSpreadProps = true;
       continue;
     }
 
@@ -237,7 +230,6 @@ function extractJSXElement(node: t.JSXElement): SkeletonElement | null {
     }
   }
 
-  // Extract children
   let text: string | undefined;
   const children: SkeletonElement[] = [];
 
@@ -248,22 +240,21 @@ function extractJSXElement(node: t.JSXElement): SkeletonElement | null {
         text = trimmed;
       }
     } else if (child.type === 'JSXElement') {
-      const childElement = extractJSXElement(child);
+      const childElement = extractJSXElement(child, depth + 1);
       if (childElement) {
         children.push(childElement);
       }
     } else if (child.type === 'JSXFragment') {
-      // Handle fragments inside children
       for (const fragmentChild of child.children) {
         if (fragmentChild.type === 'JSXElement') {
-          const el = extractJSXElement(fragmentChild);
+          const el = extractJSXElement(fragmentChild, depth + 1);
           if (el) children.push(el);
         }
       }
     } else if (child.type === 'JSXExpressionContainer') {
       const expr = child.expression;
       if (expr.type !== 'JSXEmptyExpression') {
-        const extracted = extractJSXFromExpression(expr);
+        const extracted = extractJSXFromExpression(expr, depth + 1);
         if (extracted) {
           if (Array.isArray(extracted)) {
             children.push(...extracted);
@@ -275,7 +266,6 @@ function extractJSXElement(node: t.JSXElement): SkeletonElement | null {
     }
   }
 
-  // Classify the element with sizing
   const type_ = classifyElement(tagName, className, text, src, alt);
   const dimensions = computeDimensions(type_, className, style, src);
 
@@ -293,115 +283,95 @@ function extractJSXElement(node: t.JSXElement): SkeletonElement | null {
   };
 }
 
-/**
- * Extract JSX elements from various expression types.
- */
 function extractJSXFromExpression(
-  expr: t.Expression | t.JSXEmptyExpression
-): SkeletonElement | SkeletonElement[] | null {
-  if (expr.type === 'JSXEmptyExpression') return null;
+  expr: t.Expression | t.JSXEmptyExpression,
+  depth: number = 0
+): SkeletonElement[] {
+  if (expr.type === 'JSXEmptyExpression') return [];
 
-  // Direct JSX element
   if (expr.type === 'JSXElement') {
-    return extractJSXElement(expr);
+    const el = extractJSXElement(expr, depth);
+    return el ? [el] : [];
   }
 
-  // Arrow function returning JSX
   if (expr.type === 'ArrowFunctionExpression') {
     if (expr.body.type === 'JSXElement') {
-      return extractJSXElement(expr.body);
+      const el = extractJSXElement(expr.body, depth);
+      return el ? [el] : [];
     }
     if (expr.body.type === 'JSXFragment') {
       const results: SkeletonElement[] = [];
       for (const child of expr.body.children) {
         if (child.type === 'JSXElement') {
-          const el = extractJSXElement(child);
+          const el = extractJSXElement(child, depth);
           if (el) results.push(el);
         }
       }
-      return results.length > 0 ? results : null;
+      return results;
     }
-    // Block body with return
     if (expr.body.type === 'BlockStatement') {
       for (const stmt of expr.body.body) {
         if (stmt.type === 'ReturnStatement' && stmt.argument) {
-          const result = extractJSXFromExpression(stmt.argument as t.Expression);
-          if (result) return result;
+          return extractJSXFromExpression(stmt.argument as t.Expression, depth);
         }
       }
     }
   }
 
-  // Call expression (e.g., items.map(...))
   if (expr.type === 'CallExpression') {
-    return extractJSXFromCallExpression(expr);
+    return extractJSXFromCallExpression(expr, depth);
   }
 
-  // Logical expression (e.g., condition && <Element />)
   if (expr.type === 'LogicalExpression') {
     if (expr.right.type === 'JSXElement') {
-      return extractJSXElement(expr.right);
+      const el = extractJSXElement(expr.right, depth);
+      return el ? [el] : [];
     }
     if (expr.right.type === 'JSXFragment') {
       const results: SkeletonElement[] = [];
       for (const child of expr.right.children) {
         if (child.type === 'JSXElement') {
-          const el = extractJSXElement(child);
+          const el = extractJSXElement(child, depth);
           if (el) results.push(el);
         }
       }
-      return results.length > 0 ? results : null;
+      return results;
     }
   }
 
-  // Conditional expression (e.g., condition ? <A /> : <B />)
   if (expr.type === 'ConditionalExpression') {
     const results: SkeletonElement[] = [];
     if (expr.consequent.type === 'JSXElement') {
-      const el = extractJSXElement(expr.consequent);
+      const el = extractJSXElement(expr.consequent, depth);
       if (el) results.push(el);
     }
     if (expr.alternate.type === 'JSXElement') {
-      const el = extractJSXElement(expr.alternate);
+      const el = extractJSXElement(expr.alternate, depth);
       if (el) results.push(el);
     }
-    return results.length > 0 ? results : null;
+    return results;
   }
 
-  // Member expression (e.g., components[0])
-  if (expr.type === 'MemberExpression' && expr.property.type === 'Identifier') {
-    // Skip — likely a component reference
-    return null;
-  }
-
-  // Identifier — likely a component variable
-  if (expr.type === 'Identifier') {
-    return null;
-  }
-
-  return null;
+  return [];
 }
 
-/**
- * Extract JSX from call expressions like .map(), .filter(), etc.
- */
 function extractJSXFromCallExpression(
-  expr: t.CallExpression
-): SkeletonElement | SkeletonElement[] | null {
+  expr: t.CallExpression,
+  depth: number = 0
+): SkeletonElement[] {
   const callee = expr.callee;
 
-  // item.map(...)
   if (callee.type === 'MemberExpression' && callee.property.type === 'Identifier') {
     if (callee.property.name === 'map' || callee.property.name === 'flatMap') {
       if (expr.arguments.length > 0) {
         const callback = expr.arguments[0];
         if (callback.type === 'ArrowFunctionExpression') {
-          return extractJSXFromExpression(callback.body as t.Expression);
+          return extractJSXFromExpression(callback.body as t.Expression, depth);
         }
         if (callback.type === 'FunctionExpression') {
           for (const stmt of callback.body.body) {
             if (stmt.type === 'ReturnStatement' && stmt.argument) {
-              return extractJSXFromExpression(stmt.argument as t.Expression);
+              return extractJSXFromExpression(stmt.argument as t.Expression, depth);
             }
           }
         }
@@ -409,31 +379,9 @@ function extractJSXFromCallExpression(
     }
   }
 
-  // React.createElement(...)
-  if (
-    callee.type === 'MemberExpression' &&
-    callee.object.type === 'Identifier' &&
-    callee.object.name === 'React' &&
-    callee.property.type === 'Identifier' &&
-    callee.property.name === 'createElement'
-  ) {
-    // Skip — React.createElement calls
-    return null;
-  }
-
-  return null;
+  return [];
 }
 
-/**
- * Extract className from various expression types.
- * Handles:
- * - String literals: "foo bar"
- * - Template literals: `foo ${dynamic} bar`
- * - Ternary: condition ? "foo" : "bar"
- * - Logical: isActive && "foo"
- * - Concatenation: "foo " + bar
- * - Variable references: classNames
- */
 function extractClassName(
   value: t.JSXAttribute['value']
 ): string | undefined {
@@ -458,12 +406,10 @@ function extractClassNameFromExpression(
 ): string | undefined {
   if (expr.type === 'JSXEmptyExpression') return undefined;
 
-  // String literal
   if (expr.type === 'StringLiteral') {
     return expr.value;
   }
 
-  // Template literal — extract static parts
   if (expr.type === 'TemplateLiteral') {
     return expr.quasis
       .map((q) => q.value.cooked || q.value.raw)
@@ -471,7 +417,6 @@ function extractClassNameFromExpression(
       .trim() || undefined;
   }
 
-  // Ternary — take the consequent (most common case)
   if (expr.type === 'ConditionalExpression') {
     const consequent =
       expr.consequent.type === 'StringLiteral'
@@ -482,14 +427,12 @@ function extractClassNameFromExpression(
         ? expr.alternate.value
         : extractClassNameFromExpression(expr.alternate);
 
-    // Return the longer one (usually the "active" state)
     if (consequent && alternate) {
       return consequent.length >= alternate.length ? consequent : alternate;
     }
     return consequent || alternate;
   }
 
-  // Logical expression (e.g., isActive && "foo")
   if (expr.type === 'LogicalExpression') {
     if (expr.right.type === 'StringLiteral') {
       return expr.right.value;
@@ -497,7 +440,6 @@ function extractClassNameFromExpression(
     return extractClassNameFromExpression(expr.right);
   }
 
-  // Binary expression (e.g., "foo " + bar)
   if (expr.type === 'BinaryExpression' && expr.operator === '+') {
     const left =
       expr.left.type === 'StringLiteral' ? expr.left.value : undefined;
@@ -506,14 +448,11 @@ function extractClassNameFromExpression(
     return [left, right].filter(Boolean).join(' ') || undefined;
   }
 
-  // Identifier — return the variable name as a hint
   if (expr.type === 'Identifier') {
     return expr.name;
   }
 
-  // Call expression (e.g., cn("foo", "bar"))
   if (expr.type === 'CallExpression') {
-    // Try to extract string arguments
     const strings: string[] = [];
     for (const arg of expr.arguments) {
       if (arg.type === 'StringLiteral') {
@@ -582,9 +521,21 @@ function extractStyleObject(
 
 function extractComponentNameFromPath(filePath: string): string {
   const fileName = filePath.split(/[/\\]/).pop() || '';
-  return fileName
+  const baseName = fileName
     .replace(/\.(jsx|tsx|js|ts)$/, '')
     .split('.')
     .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
     .join('');
+
+  if (baseName.toLowerCase() === 'index') {
+    const parts = filePath.split(/[/\\]/);
+    for (let i = parts.length - 2; i >= 0; i--) {
+      const part = parts[i];
+      if (part && part !== 'src' && part !== 'components' && part !== 'app' && part !== 'pages') {
+        return part.charAt(0).toUpperCase() + part.slice(1);
+      }
+    }
+  }
+
+  return baseName;
 }

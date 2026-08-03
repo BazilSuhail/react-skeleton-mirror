@@ -1,19 +1,18 @@
 import { resolve } from 'path';
-import { pathExists, stat, readdir } from 'fs-extra';
+import { pathExists } from 'fs-extra';
 import { parseComponent } from '../analyzer/parser';
-import { resetResolver } from '../analyzer/resolver';
+import { createResolverContext, clearGlobalResolverContext } from '../analyzer/resolver';
 import { loadConfig, resolveConfig, printConfig } from '../config';
-import { AnalysisResult, SkeletonElement } from '../types';
+import { getComponentFiles } from '../utils/files';
+import { AnalysisResult, SkeletonElement, SkeletonType } from '../types';
 
 export async function analyze(targetPath: string, verbose: boolean = false): Promise<void> {
   const resolvedPath = resolve(process.cwd(), targetPath);
 
   if (!(await pathExists(resolvedPath))) {
-    console.log(`\n❌ Path not found: ${targetPath}\n`);
-    process.exit(1);
+    throw new Error(`Path not found: ${targetPath}`);
   }
 
-  // Load config for verbose output
   const baseConfig = await loadConfig();
   const config = resolveConfig(baseConfig, {}, verbose);
 
@@ -24,8 +23,7 @@ export async function analyze(targetPath: string, verbose: boolean = false): Pro
     console.log('');
   }
 
-  resetResolver();
-
+  const ctx = createResolverContext();
   const files = await getComponentFiles(resolvedPath);
 
   if (files.length === 0) {
@@ -38,7 +36,7 @@ export async function analyze(targetPath: string, verbose: boolean = false): Pro
 
   for (const file of files) {
     try {
-      const result = await parseComponent(file);
+      const result = await parseComponent(file, ctx);
       results.push(result);
       printComponentSummary(result);
     } catch (err) {
@@ -106,35 +104,29 @@ function printSuggestions(results: AnalysisResult[]): void {
       continue;
     }
 
-    // Check for images
     const hasImages = hasElementType(result.elements, 'IMAGE') || hasElementType(result.elements, 'AVATAR');
     if (hasImages) {
       suggestions.push(`  💡 ${fileName} — has images, will generate circular/rectangular placeholders`);
     }
 
-    // Check for text density
     const textCount = countElementType(result.elements, 'TEXT');
     if (textCount >= 3) {
       suggestions.push(`  💡 ${fileName} — has ${textCount} text elements, skeleton will have multiple text bars`);
     }
 
-    // Check for containers
     const containerCount = countElementType(result.elements, 'CONTAINER');
     if (containerCount > 0) {
       suggestions.push(`  💡 ${fileName} — has ${containerCount} flex/grid container(s), layout will be preserved`);
     }
 
-    // Check for buttons
     if (hasElementType(result.elements, 'BUTTON')) {
       suggestions.push(`  💡 ${fileName} — has button(s), will generate button-shaped placeholders`);
     }
 
-    // Check for inputs
     if (hasElementType(result.elements, 'INPUT')) {
       suggestions.push(`  💡 ${fileName} — has input(s), will generate input-shaped placeholders`);
     }
 
-    // Check for sub-components
     if (result.subComponents.length > 0) {
       const names = result.subComponents.map((s) => s.componentName).join(', ');
       suggestions.push(`  🔗 ${fileName} — sub-components: ${names}`);
@@ -148,7 +140,6 @@ function printSuggestions(results: AnalysisResult[]): void {
     }
   }
 
-  // Summary
   const totalElements = results.reduce((sum, r) => sum + countElements(r.elements), 0);
   const totalSubs = results.reduce((sum, r) => sum + r.subComponents.length, 0);
 
@@ -159,7 +150,7 @@ function printSuggestions(results: AnalysisResult[]): void {
   );
 }
 
-function hasElementType(elements: SkeletonElement[], type: string): boolean {
+function hasElementType(elements: SkeletonElement[], type: SkeletonType): boolean {
   for (const el of elements) {
     if (el.type === type) return true;
     if (hasElementType(el.children, type)) return true;
@@ -167,62 +158,11 @@ function hasElementType(elements: SkeletonElement[], type: string): boolean {
   return false;
 }
 
-function countElementType(elements: SkeletonElement[], type: string): number {
+function countElementType(elements: SkeletonElement[], type: SkeletonType): number {
   let count = 0;
   for (const el of elements) {
     if (el.type === type) count++;
     count += countElementType(el.children, type);
   }
   return count;
-}
-
-async function getComponentFiles(targetPath: string): Promise<string[]> {
-  const s = await stat(targetPath);
-
-  if (s.isFile()) {
-    if (isValidComponentFile(targetPath)) {
-      return [targetPath];
-    }
-    console.log(`  ⚠️  ${targetPath.split(/[/\\]/).pop()} is not a .tsx or .jsx file\n`);
-    return [];
-  }
-
-  // Directory — recursively find all .tsx, .jsx files
-  const files: string[] = [];
-  await collectFiles(targetPath, files);
-
-  // Filter out test files, stories, and skeleton files
-  return files.filter((f) => {
-    const name = f.split(/[/\\]/).pop() || '';
-    if (name.includes('.test.')) return false;
-    if (name.includes('.spec.')) return false;
-    if (name.includes('.story.')) return false;
-    if (name.includes('.stories.')) return false;
-    if (name.includes('.skeleton.')) return false;
-    return true;
-  });
-}
-
-function isValidComponentFile(filePath: string): boolean {
-  const name = filePath.split(/[/\\]/).pop()?.toLowerCase() || '';
-  return name.endsWith('.tsx') || name.endsWith('.jsx');
-}
-
-async function collectFiles(dir: string, files: string[]): Promise<void> {
-  const entries = await readdir(dir, { withFileTypes: true });
-
-  for (const entry of entries) {
-    const fullPath = resolve(dir, entry.name);
-
-    if (entry.isDirectory()) {
-      // Skip node_modules and hidden directories
-      if (entry.name === 'node_modules' || entry.name.startsWith('.')) continue;
-      await collectFiles(fullPath, files);
-    } else if (entry.isFile()) {
-      const name = entry.name.toLowerCase();
-      if (name.endsWith('.tsx') || name.endsWith('.jsx')) {
-        files.push(fullPath);
-      }
-    }
-  }
 }

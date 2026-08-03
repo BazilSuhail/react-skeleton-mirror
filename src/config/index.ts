@@ -3,40 +3,31 @@ import { resolve } from 'path';
 import { SkeletonConfig, ResolvedConfig, GenerateOptions, WatchOptions } from '../types';
 import { DEFAULT_CONFIG, CONFIG_FILE_NAMES } from './defaults';
 
-/**
- * Deep merge two objects. Source values override target values.
- * Only merges plain objects; other values are overwritten.
- */
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-function deepMerge(target: any, source: any): any {
-  const result = { ...target };
+function deepMerge(target: SkeletonConfig, source: Partial<SkeletonConfig>): SkeletonConfig {
+  const result: SkeletonConfig = { ...target };
 
-  for (const key of Object.keys(source)) {
-    const sourceVal = source[key];
-    const targetVal = target[key];
+  if (source.style !== undefined) result.style = source.style;
+  if (source.output !== undefined) result.output = source.output;
+  if (source.animation !== undefined) result.animation = source.animation;
 
-    if (
-      sourceVal !== null &&
-      sourceVal !== undefined &&
-      typeof sourceVal === 'object' &&
-      !Array.isArray(sourceVal) &&
-      typeof targetVal === 'object' &&
-      targetVal !== null &&
-      !Array.isArray(targetVal)
-    ) {
-      result[key] = deepMerge(targetVal, sourceVal);
-    } else if (sourceVal !== undefined) {
-      result[key] = sourceVal;
-    }
+  if (source.colors) {
+    result.colors = {
+      ...result.colors,
+      ...source.colors,
+    };
+  }
+
+  if (source.patterns) {
+    result.patterns = {
+      avatar: { ...result.patterns.avatar, ...source.patterns.avatar },
+      button: { ...result.patterns.button, ...source.patterns.button },
+      text: { ...result.patterns.text, ...source.patterns.text },
+    };
   }
 
   return result;
 }
 
-/**
- * Loads the skeletonify config file from the project root.
- * Tries multiple config file names in order.
- */
 export async function loadConfig(): Promise<SkeletonConfig> {
   const cwd = process.cwd();
 
@@ -46,7 +37,15 @@ export async function loadConfig(): Promise<SkeletonConfig> {
     if (await pathExists(configPath)) {
       try {
         const userConfig = await readJson(configPath);
-        return deepMerge(DEFAULT_CONFIG, userConfig);
+        const merged = deepMerge(DEFAULT_CONFIG, userConfig);
+        const errors = validateConfig(merged);
+        if (errors.length > 0) {
+          console.warn(`  ⚠️  Config issues in ${fileName}:`);
+          for (const err of errors) {
+            console.warn(`     - ${err}`);
+          }
+        }
+        return merged;
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
         console.warn(`  ⚠️  Failed to load ${fileName}: ${message}`);
@@ -57,12 +56,6 @@ export async function loadConfig(): Promise<SkeletonConfig> {
   return { ...DEFAULT_CONFIG };
 }
 
-/**
- * Resolves the final config by merging:
- * 1. Default config
- * 2. User config file
- * 3. CLI flags (highest priority)
- */
 export function resolveConfig(
   baseConfig: SkeletonConfig,
   cliOptions: Partial<GenerateOptions | WatchOptions>,
@@ -70,7 +63,6 @@ export function resolveConfig(
 ): ResolvedConfig {
   let merged = { ...baseConfig };
 
-  // CLI flags override config file values
   if (cliOptions.style) {
     merged.style = cliOptions.style;
   }
@@ -84,9 +76,6 @@ export function resolveConfig(
   };
 }
 
-/**
- * Validates a config object and returns any errors found.
- */
 export function validateConfig(config: Partial<SkeletonConfig>): string[] {
   const errors: string[] = [];
 
@@ -135,9 +124,6 @@ export function validateConfig(config: Partial<SkeletonConfig>): string[] {
   return errors;
 }
 
-/**
- * Prints the resolved config in verbose mode.
- */
 export function printConfig(config: ResolvedConfig): void {
   console.log('  📋 Config:');
   console.log(`     style: ${config.style}`);

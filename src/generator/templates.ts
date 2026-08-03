@@ -1,4 +1,4 @@
-import { SkeletonElement, SkeletonType } from '../types';
+import { SkeletonElement, SkeletonType, SkeletonConfig } from '../types';
 
 interface RenderedElement {
   tag: string;
@@ -9,10 +9,6 @@ interface RenderedElement {
   indent: number;
 }
 
-/**
- * Renders a SkeletonElement tree into a JSX string for CSS mode.
- * Uses skeleton-* class names that will be defined in the CSS file.
- */
 export function renderCSSElement(
   element: SkeletonElement,
   indent: number = 0
@@ -60,13 +56,10 @@ export function renderCSSElement(
   }
 }
 
-/**
- * Renders a SkeletonElement tree into a JSX string for Tailwind mode.
- * Uses inline Tailwind classes directly.
- */
 export function renderTailwindElement(
   element: SkeletonElement,
-  indent: number = 0
+  indent: number = 0,
+  config?: SkeletonConfig
 ): string {
   const pad = '  '.repeat(indent);
 
@@ -74,7 +67,7 @@ export function renderTailwindElement(
     case 'AVATAR':
       return renderLeaf(
         'div',
-        getTailwindClasses(element),
+        getTailwindClasses(element, config),
         getInlineStyle(element),
         indent,
         true
@@ -83,7 +76,7 @@ export function renderTailwindElement(
     case 'IMAGE':
       return renderLeaf(
         'div',
-        getTailwindClasses(element),
+        getTailwindClasses(element, config),
         getInlineStyle(element),
         indent,
         true
@@ -92,7 +85,7 @@ export function renderTailwindElement(
     case 'HEADING':
       return renderLeaf(
         'div',
-        getTailwindClasses(element),
+        getTailwindClasses(element, config),
         getInlineStyle(element),
         indent,
         true
@@ -100,12 +93,12 @@ export function renderTailwindElement(
 
     case 'TEXT':
       if (element.children.length > 0) {
-        const kids = element.children.map((c) => renderTailwindElement(c, indent + 1)).join('\n');
-        return `${pad}<div className="${getTailwindClasses(element)}">\n${kids}\n${pad}</div>`;
+        const kids = element.children.map((c) => renderTailwindElement(c, indent + 1, config)).join('\n');
+        return `${pad}<div className="${getTailwindClasses(element, config)}">\n${kids}\n${pad}</div>`;
       }
       return renderLeaf(
         'div',
-        getTailwindClasses(element),
+        getTailwindClasses(element, config),
         getInlineStyle(element),
         indent,
         true
@@ -114,7 +107,7 @@ export function renderTailwindElement(
     case 'BUTTON':
       return renderLeaf(
         'div',
-        getTailwindClasses(element),
+        getTailwindClasses(element, config),
         getInlineStyle(element),
         indent,
         true
@@ -123,7 +116,7 @@ export function renderTailwindElement(
     case 'INPUT':
       return renderLeaf(
         'div',
-        getTailwindClasses(element),
+        getTailwindClasses(element, config),
         getInlineStyle(element),
         indent,
         true
@@ -132,7 +125,7 @@ export function renderTailwindElement(
     case 'LINK':
       return renderLeaf(
         'div',
-        getTailwindClasses(element),
+        getTailwindClasses(element, config),
         getInlineStyle(element),
         indent,
         true
@@ -141,14 +134,14 @@ export function renderTailwindElement(
     case 'ICON':
       return renderLeaf(
         'div',
-        getTailwindClasses(element),
+        getTailwindClasses(element, config),
         getInlineStyle(element),
         indent,
         true
       );
 
     case 'CONTAINER': {
-      const kids = element.children.map((c) => renderTailwindElement(c, indent + 1)).join('\n');
+      const kids = element.children.map((c) => renderTailwindElement(c, indent + 1, config)).join('\n');
       const layoutClasses = getLayoutClasses(element);
       if (kids) {
         return `${pad}<div className="${layoutClasses}">\n${kids}\n${pad}</div>`;
@@ -157,7 +150,7 @@ export function renderTailwindElement(
     }
 
     case 'WRAPPER': {
-      const kids = element.children.map((c) => renderTailwindElement(c, indent + 1)).join('\n');
+      const kids = element.children.map((c) => renderTailwindElement(c, indent + 1, config)).join('\n');
       if (kids) {
         return `${pad}<div className="${getLayoutClasses(element)}">\n${kids}\n${pad}</div>`;
       }
@@ -240,23 +233,43 @@ function getInlineStyle(element: SkeletonElement): string {
   return `style={{ ${parts.join(', ')} }}`;
 }
 
-function getTailwindClasses(element: SkeletonElement): string {
+function mapColorToTailwindClass(hex: string): string {
+  const colorMap: Record<string, string> = {
+    '#f8fafc': 'slate-50',
+    '#f1f5f9': 'slate-100',
+    '#e2e8f0': 'slate-200',
+    '#cbd5e1': 'slate-300',
+    '#94a3b8': 'slate-400',
+    '#f9fafb': 'gray-50',
+    '#f3f4f6': 'gray-100',
+    '#e5e7eb': 'gray-200',
+    '#d1d5db': 'gray-300',
+    '#9ca3af': 'gray-400',
+    '#fafafa': 'zinc-50',
+    '#f4f4f5': 'zinc-100',
+    '#e4e4e7': 'zinc-200',
+    '#d4d4d8': 'zinc-300',
+    '#a1a1aa': 'zinc-400',
+  };
+
+  return colorMap[hex.toLowerCase()] || 'gray-200';
+}
+
+function getTailwindClasses(element: SkeletonElement, config?: SkeletonConfig): string {
   const classes: string[] = [];
 
-  // Base color
-  classes.push('bg-gray-300');
+  const primaryColor = config?.colors?.primary || '#e5e7eb';
+  const bgClass = `bg-${mapColorToTailwindClass(primaryColor)}`;
+  classes.push(bgClass);
 
-  // Animation
   classes.push('animate-pulse');
 
-  // Shape
   if (element.isCircle) {
     classes.push('rounded-full');
   } else {
     classes.push('rounded');
   }
 
-  // Size from computed dimensions
   if (element.width) {
     const tw = convertToTailwindWidth(element.width);
     if (tw) classes.push(tw);
@@ -273,7 +286,6 @@ function getLayoutClasses(element: SkeletonElement): string {
   const classesSet = new Set<string>();
 
   if (element.className) {
-    // Extract layout-relevant classes from the original className
     const layoutPatterns = /\b(flex|grid|inline-flex|inline-grid|flex-col|flex-row|flex-wrap|gap-\d+|space-\w+|items-\w+|justify-\w+|grid-cols-\d+|col-span-\d+|p-\d+|px-\d+|py-\d+|m-\d+|mx-\d+|my-\d+|rounded|rounded-\w+|shadow|shadow-\w+)\b/g;
     const matches = element.className.match(layoutPatterns);
     if (matches) {
@@ -283,7 +295,6 @@ function getLayoutClasses(element: SkeletonElement): string {
     }
   }
 
-  // Add flex if the original was a container but no flex classes found
   if (element.type === 'CONTAINER' && !Array.from(classesSet).some(c => c.startsWith('flex') || c.startsWith('grid'))) {
     classesSet.add('flex');
   }
@@ -292,22 +303,18 @@ function getLayoutClasses(element: SkeletonElement): string {
 }
 
 function convertToTailwindWidth(width: string): string {
-  // Fixed pixel values
   const pxMatch = width.match(/^(\d+)px$/);
   if (pxMatch) {
     const px = parseInt(pxMatch[1]);
-    const rem = px / 4;
     return `w-[${px}px]`;
   }
 
-  // Percentage values
   if (width === '100%') return 'w-full';
   if (width === '75%' || width === '70%') return 'w-3/4';
   if (width === '50%') return 'w-1/2';
   if (width === '33%' || width === '30%') return 'w-1/3';
   if (width === '25%') return 'w-1/4';
 
-  // Tailwind default sizes
   if (width === '32px') return 'w-8';
   if (width === '40px') return 'w-10';
   if (width === '48px') return 'w-12';
@@ -339,18 +346,23 @@ function convertToTailwindHeight(height: string): string {
   return `h-[${height}]`;
 }
 
-/**
- * Generates the full CSS file content for skeleton styles.
- * @param animation - The animation type: 'pulse', 'shimmer', or 'none'
- */
-export function generateCSS(animation: 'pulse' | 'shimmer' | 'none' = 'pulse'): string {
-  const animationCSS = getAnimationCSS(animation);
+export function generateCSS(config: SkeletonConfig): string {
+  const { animation, colors, patterns } = config;
+  const animationCSS = getAnimationCSS(animation, colors.primary);
+
+  const avatarW = `${patterns.avatar.width}px`;
+  const avatarH = `${patterns.avatar.height}px`;
+  const avatarRadius = patterns.avatar.circle ? '50%' : `${patterns.button.borderRadius}px`;
+  const btnH = `${patterns.button.height}px`;
+  const btnRadius = `${patterns.button.borderRadius}px`;
+  const textH = `${patterns.text.height}px`;
+  const textMargin = patterns.text.margin;
 
   return `/* Generated by react-skeleton-mirror */
 /* https://github.com/BazilSuhail/react-skeleton-mirror */
 
 .skeleton {
-  background: #e5e7eb;
+  background: ${colors.primary};
   border-radius: 4px;
 }
 
@@ -359,24 +371,24 @@ export function generateCSS(animation: 'pulse' | 'shimmer' | 'none' = 'pulse'): 
 }
 
 .skeleton-avatar {
-  width: 48px;
-  height: 48px;
-  border-radius: 50%;
-  background: #d1d5db;
+  width: ${avatarW};
+  height: ${avatarH};
+  border-radius: ${avatarRadius};
+  background: ${colors.secondary};
 }
 
 .skeleton-image {
   width: 100%;
   aspect-ratio: 16 / 9;
-  background: #d1d5db;
+  background: ${colors.secondary};
   border-radius: 8px;
 }
 
 .skeleton-text {
-  height: 16px;
-  background: #d1d5db;
+  height: ${textH};
+  background: ${colors.secondary};
   border-radius: 4px;
-  margin: 8px 0;
+  margin: ${textMargin};
 }
 
 .skeleton-heading {
@@ -386,17 +398,17 @@ export function generateCSS(animation: 'pulse' | 'shimmer' | 'none' = 'pulse'): 
 }
 
 .skeleton-button {
-  height: 40px;
+  height: ${btnH};
   width: 120px;
-  background: #d1d5db;
-  border-radius: 6px;
+  background: ${colors.secondary};
+  border-radius: ${btnRadius};
 }
 
 .skeleton-input {
-  height: 40px;
+  height: ${btnH};
   width: 100%;
-  background: #d1d5db;
-  border-radius: 6px;
+  background: ${colors.secondary};
+  border-radius: ${btnRadius};
 }
 
 .skeleton-link {
@@ -407,7 +419,7 @@ export function generateCSS(animation: 'pulse' | 'shimmer' | 'none' = 'pulse'): 
 .skeleton-icon {
   width: 24px;
   height: 24px;
-  background: #d1d5db;
+  background: ${colors.secondary};
   border-radius: 4px;
 }
 
@@ -425,7 +437,7 @@ ${animationCSS}
 `;
 }
 
-function getAnimationCSS(animation: 'pulse' | 'shimmer' | 'none'): string {
+function getAnimationCSS(animation: 'pulse' | 'shimmer' | 'none', primaryColor: string): string {
   if (animation === 'none') return '';
 
   if (animation === 'shimmer') {
@@ -441,7 +453,7 @@ function getAnimationCSS(animation: 'pulse' | 'shimmer' | 'none'): string {
 .skeleton-icon {
   position: relative;
   overflow: hidden;
-  background: #e5e7eb;
+  background: ${primaryColor};
 }
 
 .skeleton::after,
@@ -478,7 +490,6 @@ function getAnimationCSS(animation: 'pulse' | 'shimmer' | 'none'): string {
 }`;
   }
 
-  // Default: pulse
   return `/* Pulse animation */
 .skeleton,
 .skeleton-avatar,

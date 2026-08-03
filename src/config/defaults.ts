@@ -17,6 +17,5 @@ export const DEFAULT_CONFIG: SkeletonConfig = {
 
 export const CONFIG_FILE_NAMES = [
   'skeletonify.config.json',
-  'skeletonify.config.js',
   '.skeletonifyrc',
 ];

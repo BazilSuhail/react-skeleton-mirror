@@ -1,12 +1,11 @@
 import { resolve } from 'path';
-import { pathExists, stat, mkdirp, writeFile, readdir } from 'fs-extra';
+import { pathExists, stat } from 'fs-extra';
 import chokidar from 'chokidar';
 import { parseComponent } from '../analyzer/parser';
-import { resetResolver } from '../analyzer/resolver';
-import { generateSkeletonTSX } from '../generator/tsx';
-import { generateCSS } from '../generator/templates';
-import { WatchOptions, AnalysisResult } from '../types';
+import { createResolverContext } from '../analyzer/resolver';
+import { WatchOptions } from '../types';
 import { loadConfig, resolveConfig, printConfig } from '../config';
+import { getComponentFiles, writeSkeletonFiles } from '../utils/files';
 
 export async function watch(
   targetPath: string,
@@ -16,13 +15,16 @@ export async function watch(
   const resolvedPath = resolve(process.cwd(), targetPath);
 
   if (!(await pathExists(resolvedPath))) {
-    console.log(`\n❌ Path not found: ${targetPath}\n`);
-    process.exit(1);
+    throw new Error(`Path not found: ${targetPath}`);
   }
 
-  // Load and resolve config
   const baseConfig = await loadConfig();
   const config = resolveConfig(baseConfig, options, verbose);
+
+  if (options.style && options.style !== 'css' && options.style !== 'tailwind') {
+    throw new Error(`Invalid style: "${options.style}". Use "css" or "tailwind".`);
+  }
+
   const outputDir = resolve(process.cwd(), config.output);
 
   console.log(`\n👀 Watching for changes...\n`);
@@ -35,17 +37,15 @@ export async function watch(
   }
   console.log('');
 
-  // Determine watch pattern
   const isFile = (await stat(resolvedPath)).isFile();
   const watchPattern = isFile ? resolvedPath : `${resolvedPath.replace(/\\/g, '/')}/**/*.{tsx,jsx}`;
 
-  // Track files being processed to avoid duplicate regeneration
   const processing = new Set<string>();
 
   const watcher = chokidar.watch(watchPattern, {
     ignoreInitial: true,
     ignored: [
-      /(^|[\/\\])\../, // dot files
+      /(^|[\/\\])\../,
       /node_modules/,
       /\.skeleton\./,
       /\.test\./,
@@ -59,11 +59,9 @@ export async function watch(
     },
   });
 
-  // Handle file changes
-  watcher.on('change', async (filePath: string) => {
+  const onFileChange = async (filePath: string, action: 'change' | 'add') => {
     const normalizedPath = filePath.replace(/\\/g, '/');
 
-    // Skip if already processing
     if (processing.has(normalizedPath)) return;
     processing.add(normalizedPath);
 
@@ -74,18 +72,20 @@ export async function watch(
       .map((p) => p.charAt(0).toUpperCase() + p.slice(1))
       .join('');
 
-    console.log(`  📁 ${fileName} changed → Regenerating...`);
+    const actionLabel = action === 'change' ? 'changed → Regenerating' : 'added → Generating skeleton';
+    console.log(`  📁 ${fileName} ${actionLabel}...`);
 
     try {
       if (verbose) {
         console.log(`     Parsing ${filePath}...`);
       }
-      resetResolver();
-      const result = await parseComponent(filePath);
-      await writeSkeletonFiles(result, outputDir, config.style, config.animation);
-      console.log(`  ✅ ${componentName}.skeleton.tsx updated`);
+      const ctx = createResolverContext();
+      const result = await parseComponent(filePath, ctx);
+      await writeSkeletonFiles(result, outputDir, config);
+      const suffix = action === 'change' ? 'updated' : 'created';
+      console.log(`  ✅ ${componentName}.skeleton.tsx ${suffix}`);
       if (config.style === 'css') {
-        console.log(`     ${componentName}.skeleton.css updated`);
+        console.log(`     ${componentName}.skeleton.css ${suffix}`);
       }
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
@@ -93,53 +93,21 @@ export async function watch(
     } finally {
       processing.delete(normalizedPath);
     }
-  });
+  };
 
-  // Handle file additions
-  watcher.on('add', async (filePath: string) => {
-    const normalizedPath = filePath.replace(/\\/g, '/');
-    if (processing.has(normalizedPath)) return;
-    processing.add(normalizedPath);
+  watcher.on('change', (filePath: string) => onFileChange(filePath, 'change'));
+  watcher.on('add', (filePath: string) => onFileChange(filePath, 'add'));
 
-    const fileName = normalizedPath.split('/').pop() || '';
-
-    console.log(`  📄 ${fileName} added → Generating skeleton...`);
-
-    try {
-      resetResolver();
-      const result = await parseComponent(filePath);
-      await writeSkeletonFiles(result, outputDir, config.style, config.animation);
-      const componentName = fileName
-        .replace(/\.(tsx|jsx)$/i, '')
-        .split('.')
-        .map((p) => p.charAt(0).toUpperCase() + p.slice(1))
-        .join('');
-      console.log(`  ✅ ${componentName}.skeleton.tsx created`);
-      if (config.style === 'css') {
-        console.log(`     ${componentName}.skeleton.css created`);
-      }
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      console.log(`  ⚠️  ${fileName} — error: ${message}`);
-    } finally {
-      processing.delete(normalizedPath);
-    }
-  });
-
-  // Handle file deletions
   watcher.on('unlink', (filePath: string) => {
     const fileName = filePath.split(/[/\\]/).pop() || '';
-
     console.log(`  🗑️  ${fileName} removed → Skeleton not deleted (manual cleanup needed)`);
   });
 
-  // Handle errors
   watcher.on('error', (error: unknown) => {
     const message = error instanceof Error ? error.message : String(error);
     console.log(`\n  ❌ Watcher error: ${message}\n`);
   });
 
-  // Initial generation
   console.log(`  🔍 Scanning for components...`);
 
   try {
@@ -148,9 +116,9 @@ export async function watch(
 
     for (const file of files) {
       try {
-        resetResolver();
-        const result = await parseComponent(file);
-        await writeSkeletonFiles(result, outputDir, config.style, config.animation);
+        const ctx = createResolverContext();
+        const result = await parseComponent(file, ctx);
+        await writeSkeletonFiles(result, outputDir, config);
         generated++;
       } catch {
         // Skip files that fail initial generation
@@ -167,70 +135,17 @@ export async function watch(
 
   console.log(`  👀 Watching for changes... (Press Ctrl+C to stop)\n`);
 
-  // Keep process alive
+  const sigintHandler = () => {
+    console.log('\n\n  👋 Stopping watcher...\n');
+    watcher.close();
+    process.removeListener('SIGINT', sigintHandler);
+    resolveKeepAlive();
+  };
+
+  let resolveKeepAlive!: () => void;
+
   await new Promise<void>((resolvePromise) => {
-    process.on('SIGINT', () => {
-      console.log('\n\n  👋 Stopping watcher...\n');
-      watcher.close();
-      resolvePromise();
-    });
+    resolveKeepAlive = resolvePromise;
+    process.on('SIGINT', sigintHandler);
   });
-}
-
-async function writeSkeletonFiles(
-  result: AnalysisResult,
-  outputDir: string,
-  style: 'css' | 'tailwind',
-  animation: 'pulse' | 'shimmer' | 'none' = 'pulse'
-): Promise<void> {
-  await mkdirp(outputDir);
-
-  const tsxContent = generateSkeletonTSX(result, style);
-  const tsxPath = resolve(outputDir, `${result.componentName}.skeleton.tsx`);
-  await writeFile(tsxPath, tsxContent, 'utf-8');
-
-  if (style === 'css') {
-    const cssContent = generateCSS(animation);
-    const cssPath = resolve(outputDir, `${result.componentName}.skeleton.css`);
-    await writeFile(cssPath, cssContent, 'utf-8');
-  }
-}
-
-async function getComponentFiles(targetPath: string): Promise<string[]> {
-  const s = await stat(targetPath);
-
-  if (s.isFile()) {
-    return [targetPath];
-  }
-
-  const files: string[] = [];
-  await collectFiles(targetPath, files);
-
-  return files.filter((f) => {
-    const name = f.split(/[/\\]/).pop() || '';
-    if (name.includes('.test.')) return false;
-    if (name.includes('.spec.')) return false;
-    if (name.includes('.story.')) return false;
-    if (name.includes('.stories.')) return false;
-    if (name.includes('.skeleton.')) return false;
-    return true;
-  });
-}
-
-async function collectFiles(dir: string, files: string[]): Promise<void> {
-  const entries = await readdir(dir, { withFileTypes: true });
-
-  for (const entry of entries) {
-    const fullPath = resolve(dir, entry.name);
-
-    if (entry.isDirectory()) {
-      if (entry.name === 'node_modules' || entry.name.startsWith('.')) continue;
-      await collectFiles(fullPath, files);
-    } else if (entry.isFile()) {
-      const name = entry.name.toLowerCase();
-      if (name.endsWith('.tsx') || name.endsWith('.jsx')) {
-        files.push(fullPath);
-      }
-    }
-  }
 }
